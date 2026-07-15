@@ -3,7 +3,8 @@ import { fileURLToPath } from "url";
 import path from "path";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const db = new Database(path.join(__dirname, "pawbridge.db"));
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, "pawbridge.db");
+const db = new Database(DB_PATH);
 db.pragma("journal_mode = WAL");
 
 /* auth_users holds credentials only — never returned to the client.

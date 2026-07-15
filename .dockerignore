@@ -1,0 +1,10 @@
+node_modules
+dist
+public
+src
+.git
+.env
+*.md
+server/pawbridge.db
+server/pawbridge.db-shm
+server/pawbridge.db-wal

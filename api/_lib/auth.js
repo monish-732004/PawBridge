@@ -3,8 +3,8 @@ import jwt from "jsonwebtoken";
 import { randomUUID } from "crypto";
 import { findAuthByEmail, insertAuthUser, countUsersByRole, getAppState, setAppState } from "./db.js";
 
-const JWT_SECRET = process.env.JWT_SECRET || "pawbridge-dev-secret-change-me";
-const COOKIE_NAME = "pb_session";
+export const JWT_SECRET = process.env.JWT_SECRET || "pawbridge-dev-secret-change-me";
+export const COOKIE_NAME = "pb_session";
 
 const CITY_COORDS = {
   kochi: { lat: 9.98, lng: 76.28 },
@@ -54,63 +54,73 @@ export function signToken(userId) {
 const PROD = process.env.NODE_ENV === "production";
 
 export function setSessionCookie(res, userId) {
-  res.cookie(COOKIE_NAME, signToken(userId), {
-    httpOnly: true, sameSite: PROD ? "none" : "lax", secure: PROD, maxAge: 30 * 24 * 60 * 60 * 1000,
-  });
+  const token = signToken(userId);
+  const cookieVal = `${COOKIE_NAME}=${token}; Path=/; HttpOnly; Max-Age=${30 * 24 * 60 * 60}; SameSite=${PROD ? "None" : "Lax"}${PROD ? "; Secure" : ""}`;
+  res.setHeader("Set-Cookie", cookieVal);
 }
 
 export function clearSessionCookie(res) {
-  res.clearCookie(COOKIE_NAME, { httpOnly: true, sameSite: PROD ? "none" : "lax", secure: PROD });
+  const cookieVal = `${COOKIE_NAME}=; Path=/; HttpOnly; Max-Age=0; SameSite=${PROD ? "None" : "Lax"}${PROD ? "; Secure" : ""}`;
+  res.setHeader("Set-Cookie", cookieVal);
 }
 
-export function requireAuth(req, res, next) {
-  const token = req.cookies && req.cookies[COOKIE_NAME];
-  if (!token) return res.status(401).json({ error: "Not signed in" });
+export function getTokenFromRequest(req) {
+  const cookieHeader = req.headers.cookie || "";
+  const match = cookieHeader.split(";").map((s) => s.trim()).find((s) => s.startsWith(`${COOKIE_NAME}=`));
+  return match ? match.slice(COOKIE_NAME.length + 1) : null;
+}
+
+export function verifyToken(token) {
   try {
-    const { sub } = jwt.verify(token, JWT_SECRET);
-    req.userId = sub;
-    next();
-  } catch (e) {
-    return res.status(401).json({ error: "Not signed in" });
+    return jwt.verify(token, JWT_SECRET);
+  } catch {
+    return null;
   }
 }
 
-/* Creates the credential row + a matching public profile inside app_state.users,
-   so every existing action in the app (rating, banning, verifying someone else…)
-   can mutate that profile through the exact same whole-tree PUT it already uses
-   for pets/listings/agreements — no separate per-user endpoint needed. */
+export function requireAuth(req, res) {
+  const token = getTokenFromRequest(req);
+  if (!token) { res.status(401).json({ error: "Not signed in" }); return null; }
+  const payload = verifyToken(token);
+  if (!payload) { res.status(401).json({ error: "Not signed in" }); return null; }
+  return payload.sub;
+}
+
 export async function createUser({ email, password, name, role, city }) {
   const passwordHash = await bcrypt.hash(password, 10);
   const id = "u_" + randomUUID();
-  insertAuthUser({ id, email, passwordHash });
+  await insertAuthUser({ id, email, passwordHash });
   const profile = defaultProfile({ id, email, role, name, city });
-  const state = getAppState();
+  const state = await getAppState();
   state.users.push(profile);
-  setAppState(state);
+  await setAppState(state);
   return profile;
 }
 
 export async function verifyPassword(email, password) {
-  const row = findAuthByEmail(email);
+  const row = await findAuthByEmail(email);
   if (!row) return null;
   const ok = await bcrypt.compare(password, row.password_hash);
   return ok ? row.id : null;
 }
 
 export async function ensureAdminBootstrap() {
-  if (countUsersByRole("admin") > 0) return;
+  const count = await countUsersByRole("admin");
+  if (count > 0) return;
   const email = process.env.ADMIN_EMAIL || "admin@pawbridge.dev";
   const password = process.env.ADMIN_PASSWORD || "pawbridge-admin";
-  if (findAuthByEmail(email)) return;
+  const existing = await findAuthByEmail(email);
+  if (existing) return;
   const passwordHash = await bcrypt.hash(password, 10);
-  const id = "u_" + randomUUID();
-  insertAuthUser({ id, email, passwordHash });
-  const state = getAppState();
+  const { randomUUID: ruuid } = await import("crypto");
+  const id = "u_" + ruuid();
+  await insertAuthUser({ id, email, passwordHash });
+  const state = await getAppState();
   state.users.push({
     id, email, role: "admin", name: "Admin", city: "Kochi", avatar: "🛡️", phone: "", ...cityCoords("Kochi"),
     verified: { phone: true, email: true, govId: true, selfie: true, address: true, noc: false, police: true, reference: true },
     renting: false, verifiedAt: Date.now(), blurb: "Trust & Safety", ratings: [], flags: [], banned: false,
   });
-  setAppState(state);
-  console.log(`\n[PawBridge] Bootstrapped admin account — email: ${email}  password: ${password}\n`);
+  await setAppState(state);
+  console.log(`\n[PawBridge] Bootstrapped admin — email: ${email}  password: ${password}\n`);
 }
