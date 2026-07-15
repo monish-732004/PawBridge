@@ -1,10 +1,11 @@
 import { ensureSchema, getAppState } from "./_lib/db.js";
-import { verifyPassword, setSessionCookie } from "./_lib/auth.js";
+import { verifyPassword, setSessionCookie, ensureAdminBootstrap } from "./_lib/auth.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
   try {
     await ensureSchema();
+    await ensureAdminBootstrap();
     const { email, password } = req.body || {};
     const userId = await verifyPassword(email || "", password || "");
     if (!userId) return res.status(401).json({ error: "Invalid email or password" });

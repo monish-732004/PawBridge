@@ -112,8 +112,7 @@ export async function ensureAdminBootstrap() {
   const existing = await findAuthByEmail(email);
   if (existing) return;
   const passwordHash = await bcrypt.hash(password, 10);
-  const { randomUUID: ruuid } = await import("crypto");
-  const id = "u_" + ruuid();
+  const id = "u_" + randomUUID();
   await insertAuthUser({ id, email, passwordHash });
   const state = await getAppState();
   state.users.push({

@@ -1,10 +1,11 @@
-import { ensureSchema } from "./_lib/db.js";
-import { findAuthByEmail, createUser, setSessionCookie } from "./_lib/auth.js";
+import { ensureSchema, findAuthByEmail } from "./_lib/db.js";
+import { createUser, setSessionCookie, ensureAdminBootstrap } from "./_lib/auth.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
   try {
     await ensureSchema();
+    await ensureAdminBootstrap();
     const { email, password, name, role, city } = req.body || {};
     if (!email || !password || !name || !role)
       return res.status(400).json({ error: "Missing fields" });
